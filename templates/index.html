@@ -41,6 +41,9 @@
     <div id="question-modal" class="modal">
         <div class="modal-content">
             <h1 id="question-text"></h1>
+            <div id="timer-container">
+                <span>Time left: <span id="timer">30</span> seconds</span>
+            </div>
             <div id="multiple-choice" class="button-container"></div> <!-- Multiple choice answers will appear here -->
             <button id="close-modal">Close</button>
         </div>
@@ -51,6 +54,8 @@
     let players = []; // Array to hold player objects {name, score}
     let currentPlayerIndex = 0; // To keep track of whose turn it is
     let correctAnswer = ''; // To store the correct answer for each question
+    let timer; // Reference to the countdown timer
+    let countdownInterval; // Reference to the countdown interval
     const categories = {{ categories | tojson }};  // Injected from Flask (categories)
 
     // Function to update the displayed current player
@@ -132,7 +137,6 @@
             board.appendChild(categoryColumn);
         });
     }
-
     // Function to handle when a tile is clicked
     function handleQuestionClick(event) {
         const item = event.target;
@@ -145,6 +149,10 @@
 
         // Fetch and display the trivia question
         fetchTriviaQuestion(category, questionId, questionValue);
+
+        // Show the modal and start the countdown timer
+        document.getElementById('question-modal').style.display = 'flex';
+        startTimer(questionId, questionValue);  // Start the 30-second timer
     }
 
     // Function to fetch multiple-choice questions from Flask endpoint
@@ -188,8 +196,6 @@
                     multipleChoiceContainer.appendChild(button);
                 });
 
-                // Show the modal
-                document.getElementById('question-modal').style.display = 'flex';
             })
             .catch(error => {
                 console.error(`Error fetching questions for category ${category}:`, error);
@@ -206,6 +212,10 @@
         buttons.forEach(button => {
             button.disabled = true; // Disable all buttons
         });
+
+        // Stop the timer if the player answers in time
+        clearInterval(countdownInterval);
+        clearTimeout(timer);
 
         if (selectedAnswer === correctAnswer) {
             document.getElementById('question-text').innerText = `Correct! The answer was: ${correctAnswer}`;
@@ -229,14 +239,52 @@
 
     // Function to close the modal and return to the game board
     function closeModal() {
-        document.getElementById('question-modal').style.display = 'none';
-        document.getElementById('jeopardy-board').style.display = 'grid';
+        document.getElementById('question-modal').style.display = 'none';  // Hide the modal
+        clearInterval(countdownInterval);  // Stop the countdown
+        clearTimeout(timer);  // Stop the timer if running
     }
 
-    // Initialize event listeners
+    // Initialize event listeners after DOM is loaded
     document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('close-modal').addEventListener('click', closeModal);
     });
+
+    // Function to start the 30-second countdown timer
+    function startTimer(questionId, questionValue) {
+        let timeLeft = 30; // 30 seconds
+        document.getElementById('timer').innerText = timeLeft; // Display initial time
+
+        countdownInterval = setInterval(() => {
+            timeLeft--;
+            if (timeLeft >= 0) {
+                document.getElementById('timer').innerText = timeLeft;
+            } else {
+                clearInterval(countdownInterval); // Stop the interval when time runs out
+            }
+        }, 1000);
+
+        // Automatically mark the question as incorrect after 30 seconds
+        timer = setTimeout(() => {
+            console.log('Time ran out!');
+
+            const currentPlayer = players[currentPlayerIndex];
+            currentPlayer.score -= questionValue; // Subtract drinks from player's score if time runs out
+
+            // Mark the question as incorrect
+            const questionTile = document.getElementById(questionId);
+            questionTile.style.backgroundColor = 'red';
+            questionTile.style.cursor = 'not-allowed'; // Disable further clicks
+            questionTile.removeEventListener('click', handleQuestionClick); // Disable click
+
+            // Update player display and current player
+            updatePlayerDisplay();
+            currentPlayerIndex = (currentPlayerIndex + 1) % players.length; // Cycle through players
+            updateCurrentPlayer();
+
+            // Close the modal when time runs out
+            closeModal();
+        }, 30000); // 30 seconds
+    }
 </script>
 </body>
 </html>
