@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jeopardy Drinking Game</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<!-- Player input section -->
+<div id="player-setup" class="player-setup">
+    <h1>Enter Player Names (2-4 Players)</h1>
+    <form id="player-form">
+        <input type="text" id="player1" placeholder="Player 1" required>
+        <input type="text" id="player2" placeholder="Player 2" required>
+        <input type="text" id="player3" placeholder="Player 3 (optional)">
+        <input type="text" id="player4" placeholder="Player 4 (optional)">
+        <button type="submit">Start Game</button>
+    </form>
+</div>
+
+<!-- Game section -->
+<div id="game-section" class="hidden">
+    <div class="game-container">
+        <!-- Player display section -->
+        <div id="player-display" class="player-display">
+            <h2>Players</h2>
+            <ul id="player-list"></ul> <!-- Dynamically show the players and their scores -->
+        </div>
+
+        <!-- Game board section -->
+        <div class="board-container">
+            <h2 id="current-player"></h2>
+            <div id="jeopardy-board" class="jeopardy-board">
+                <!-- Game board will be dynamically generated here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Question modal -->
+    <div id="question-modal" class="modal">
+        <div class="modal-content">
+            <h1 id="question-text"></h1>
+            <div id="multiple-choice" class="button-container"></div> <!-- Multiple choice answers will appear here -->
+            <button id="close-modal">Close</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let players = []; // Array to hold player objects {name, score}
+    let currentPlayerIndex = 0; // To keep track of whose turn it is
+    let correctAnswer = ''; // To store the correct answer for each question
+    const categories = {{ categories | tojson }};  // Injected from Flask (categories)
+
+    // Function to update the displayed current player
+    function updateCurrentPlayer() {
+        document.getElementById('current-player').innerText = `Current Player: ${players[currentPlayerIndex].name}`;
+    }
+
+    // Function to update the player scores display
+    function updatePlayerDisplay() {
+        const playerList = document.getElementById('player-list');
+        playerList.innerHTML = ''; // Clear previous player data
+
+        players.forEach(player => {
+            const li = document.createElement('li');
+            li.innerText = `${player.name}: ${player.score} Drink${player.score > 1 ? 's' : ''}`;
+            playerList.appendChild(li);
+        });
+    }
+
+    // Function to handle player input and start the game
+    document.getElementById('player-form').addEventListener('submit', function(event) {
+        event.preventDefault(); // Prevent the form from submitting
+
+        // Get player names
+        const player1 = document.getElementById('player1').value.trim();
+        const player2 = document.getElementById('player2').value.trim();
+        const player3 = document.getElementById('player3').value.trim();
+        const player4 = document.getElementById('player4').value.trim();
+
+        // Add the players to the players array with initial scores
+        players.push({name: player1, score: 0});
+        players.push({name: player2, score: 0});
+        if (player3) players.push({name: player3, score: 0});
+        if (player4) players.push({name: player4, score: 0});
+
+        // Hide the player setup section and show the game board
+        document.getElementById('player-setup').style.display = 'none';
+        document.getElementById('game-section').style.display = 'block';
+
+        // Set the first player and display player scores
+        updateCurrentPlayer();
+        updatePlayerDisplay();
+
+        // Generate the game board with categories
+        generateGameBoard();
+    });
+
+    // Function to generate the game board with categories and tiles
+    function generateGameBoard() {
+        const board = document.getElementById('jeopardy-board');
+        board.innerHTML = '';  // Clear any previous board
+
+        categories.forEach(category => {
+            const categoryColumn = document.createElement('div');
+            categoryColumn.classList.add('category-column');
+
+            // Add the category name
+            const categoryHeader = document.createElement('div');
+            categoryHeader.classList.add('category');
+            categoryHeader.innerText = category;
+            categoryColumn.appendChild(categoryHeader);
+
+            // Add 5 questions per category (1 Drink - 5 Drinks based on difficulty)
+            for (let difficulty = 1; difficulty <= 5; difficulty++) {
+                const questionTile = document.createElement('div');
+                questionTile.classList.add('question');
+                questionTile.setAttribute('id', `${category}-difficulty-${difficulty}`);
+                questionTile.setAttribute('data-category', category);
+                questionTile.setAttribute('data-difficulty', difficulty);
+                questionTile.setAttribute('data-value', difficulty);  // Drinks based on difficulty
+                questionTile.innerText = `${difficulty} Drink${difficulty > 1 ? 's' : ''}`;
+
+                // Add event listener for click event
+                questionTile.addEventListener('click', handleQuestionClick);
+
+                categoryColumn.appendChild(questionTile);
+            }
+
+            board.appendChild(categoryColumn);
+        });
+    }
+
+    // Function to handle when a tile is clicked
+    function handleQuestionClick(event) {
+        const item = event.target;
+        const category = item.getAttribute('data-category');
+        const difficulty = item.getAttribute('data-difficulty');
+        const questionId = item.getAttribute('id');
+        const questionValue = parseInt(item.getAttribute('data-value'), 10);
+
+        console.log(`Clicked tile: ${questionId}`);  // Debugging info
+
+        // Fetch and display the trivia question
+        fetchTriviaQuestion(category, questionId, questionValue);
+    }
+
+    // Function to fetch multiple-choice questions from Flask endpoint
+    function fetchTriviaQuestion(category, questionId, questionValue) {
+        fetch(`/get_questions/${category}`)
+            .then(response => response.json())
+            .then(data => {
+                console.log(data);  // Log the fetched question data for debugging
+
+                // If the data is empty or invalid, return early
+                if (!data || data.length === 0) {
+                    console.error(`No questions found for category: ${category}`);
+                    return;
+                }
+
+                // Use the first question from the data (or modify as needed)
+                const questionData = data.find(q => q.difficulty == questionValue);  // Match difficulty with drinks
+
+                if (!questionData) {
+                    console.error('No question found for this tile');
+                    return;
+                }
+
+                // Store correct answer
+                correctAnswer = questionData.correct_answer;
+
+                // Display the question and choices
+                document.getElementById('question-text').innerText = questionData.question;
+
+                // Generate multiple-choice buttons
+                const multipleChoiceContainer = document.getElementById('multiple-choice');
+                multipleChoiceContainer.innerHTML = '';  // Clear previous choices
+                const choices = questionData.answers;  // All answers
+
+                choices.forEach(choice => {
+                    const button = document.createElement('button');
+                    button.innerText = choice;
+                    button.onclick = function() {
+                        checkAnswer(choice, questionId, questionValue);
+                    };
+                    multipleChoiceContainer.appendChild(button);
+                });
+
+                // Show the modal
+                document.getElementById('question-modal').style.display = 'flex';
+            })
+            .catch(error => {
+                console.error(`Error fetching questions for category ${category}:`, error);
+            });
+    }
+
+    // Function to check the selected answer
+    function checkAnswer(selectedAnswer, questionId, questionValue) {
+        const currentPlayer = players[currentPlayerIndex];
+
+        // Disable all answer buttons once an answer is selected
+        const multipleChoiceContainer = document.getElementById('multiple-choice');
+        const buttons = multipleChoiceContainer.querySelectorAll('button');
+        buttons.forEach(button => {
+            button.disabled = true; // Disable all buttons
+        });
+
+        if (selectedAnswer === correctAnswer) {
+            document.getElementById('question-text').innerText = `Correct! The answer was: ${correctAnswer}`;
+            currentPlayer.score += questionValue; // Add drinks to player's score if correct
+        } else {
+            document.getElementById('question-text').innerText = `Incorrect! The answer was: ${correctAnswer}`;
+            currentPlayer.score -= questionValue; // Subtract drinks from player's score if incorrect
+        }
+
+        // Mark the question as answered
+        const questionTile = document.getElementById(questionId);
+        questionTile.style.backgroundColor = selectedAnswer === correctAnswer ? 'green' : 'red';
+        questionTile.style.cursor = 'not-allowed'; // Disable further clicks
+        questionTile.removeEventListener('click', handleQuestionClick); // Disable click
+
+        // Update player display and current player
+        updatePlayerDisplay();
+        currentPlayerIndex = (currentPlayerIndex + 1) % players.length; // Cycle through players
+        updateCurrentPlayer();
+    }
+
+    // Function to close the modal and return to the game board
+    function closeModal() {
+        document.getElementById('question-modal').style.display = 'none';
+        document.getElementById('jeopardy-board').style.display = 'grid';
+    }
+
+    // Initialize event listeners
+    document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('close-modal').addEventListener('click', closeModal);
+    });
+</script>
+</body>
+</html>
