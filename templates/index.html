@@ -44,7 +44,7 @@
             <div id="timer-container">
                 <span>Time left: <span id="timer">30</span> seconds</span>
             </div>
-            <div id="multiple-choice" class="button-container"></div> <!-- Multiple choice answers will appear here -->
+            <div id="multiple-choice" class="button-container"></div> <!-- Buttons for "Answered" and "I Don't Know" -->
             <button id="close-modal">Close</button>
         </div>
     </div>
@@ -137,105 +137,123 @@
             board.appendChild(categoryColumn);
         });
     }
-    // Function to handle when a tile is clicked
+
     function handleQuestionClick(event) {
         const item = event.target;
-        const category = item.getAttribute('data-category');
-        const difficulty = item.getAttribute('data-difficulty');
+        const category = encodeURIComponent(item.getAttribute('data-category'));  // Make sure category is URL-safe
+        const difficulty = item.getAttribute('data-difficulty');  // Drink value (1 to 5)
         const questionId = item.getAttribute('id');
         const questionValue = parseInt(item.getAttribute('data-value'), 10);
 
         console.log(`Clicked tile: ${questionId}`);  // Debugging info
 
-        // Fetch and display the trivia question
-        fetchTriviaQuestion(category, questionId, questionValue);
-
-        // Show the modal and start the countdown timer
-        document.getElementById('question-modal').style.display = 'flex';
-        startTimer(questionId, questionValue);  // Start the 30-second timer
+        // Fetch and display the trivia question with both category and difficulty
+        fetchTriviaQuestion(category, difficulty, questionId, questionValue);
     }
 
-    // Function to fetch multiple-choice questions from Flask endpoint
-    function fetchTriviaQuestion(category, questionId, questionValue) {
-        fetch(`/get_questions/${category}`)
+
+    function fetchTriviaQuestion(category, difficulty, questionId, questionValue) {
+        fetch(`/get_questions/${category}/${difficulty}`)  // Fetch question based on category and difficulty
             .then(response => response.json())
             .then(data => {
-                console.log(data);  // Log the fetched question data for debugging
+                console.log("Fetched Question Data: ", data);
 
-                // If the data is empty or invalid, return early
+                // If no data (empty response or None returned from backend), notify or skip
                 if (!data || data.length === 0) {
-                    console.error(`No questions found for category: ${category}`);
+                    console.error(`No question found for category: ${category}, difficulty: ${difficulty}`);
+                    document.getElementById('question-text').innerText = 'No question available for this tile.';
                     return;
                 }
 
-                // Use the first question from the data (or modify as needed)
-                const questionData = data.find(q => q.difficulty == questionValue);  // Match difficulty with drinks
+                const questionData = data[0];  // Get the first question (we only expect one)
 
                 if (!questionData) {
-                    console.error('No question found for this tile');
+                    console.error('No question found for this tile.');
                     return;
                 }
 
-                // Store correct answer
-                correctAnswer = questionData.correct_answer;
+                // Display the prompt from the 'correct_answer' column (as the prompt)
+                document.getElementById('question-text').innerText = questionData.correct_answer;
 
-                // Display the question and choices
-                document.getElementById('question-text').innerText = questionData.question;
-
-                // Generate multiple-choice buttons
+                // Clear previous buttons (no multiple-choice now)
                 const multipleChoiceContainer = document.getElementById('multiple-choice');
-                multipleChoiceContainer.innerHTML = '';  // Clear previous choices
-                const choices = questionData.answers;  // All answers
+                multipleChoiceContainer.innerHTML = '';
 
-                choices.forEach(choice => {
-                    const button = document.createElement('button');
-                    button.innerText = choice;
-                    button.onclick = function() {
-                        checkAnswer(choice, questionId, questionValue);
-                    };
-                    multipleChoiceContainer.appendChild(button);
-                });
+                // Create buttons for "Answered" and "I Don't Know"
+                const answeredButton = document.createElement('button');
+                answeredButton.innerText = "I've Answered";
+                answeredButton.onclick = function() {
+                    checkAnswer(questionData.question, questionId, questionValue);  // Use 'question' as correct answer
+                };
 
+                const dontKnowButton = document.createElement('button');
+                dontKnowButton.innerText = "I Don't Know";
+                dontKnowButton.onclick = function() {
+                    handleIncorrect(questionId, questionValue);  // Handle incorrect answer
+                };
+
+                multipleChoiceContainer.appendChild(answeredButton);
+                multipleChoiceContainer.appendChild(dontKnowButton);
+
+                // Show the modal and start the countdown timer
+                document.getElementById('question-modal').style.display = 'flex';
+                startTimer(questionId, questionValue);  // Start the 30-second timer
             })
             .catch(error => {
                 console.error(`Error fetching questions for category ${category}:`, error);
             });
     }
 
-    // Function to check the selected answer
-    function checkAnswer(selectedAnswer, questionId, questionValue) {
+    function checkAnswer(correctAnswer, questionId, questionValue) {
         const currentPlayer = players[currentPlayerIndex];
 
-        // Disable all answer buttons once an answer is selected
-        const multipleChoiceContainer = document.getElementById('multiple-choice');
-        const buttons = multipleChoiceContainer.querySelectorAll('button');
-        buttons.forEach(button => {
-            button.disabled = true; // Disable all buttons
-        });
-
-        // Stop the timer if the player answers in time
+        // Stop the timer
         clearInterval(countdownInterval);
         clearTimeout(timer);
 
-        if (selectedAnswer === correctAnswer) {
-            document.getElementById('question-text').innerText = `Correct! The answer was: ${correctAnswer}`;
-            currentPlayer.score += questionValue; // Add drinks to player's score if correct
-        } else {
-            document.getElementById('question-text').innerText = `Incorrect! The answer was: ${correctAnswer}`;
-            currentPlayer.score -= questionValue; // Subtract drinks from player's score if incorrect
-        }
+        // Show the correct answer
+        document.getElementById('question-text').innerText = `The correct answer is: ${correctAnswer}`;
 
-        // Mark the question as answered
+        // Mark the question as answered correctly
         const questionTile = document.getElementById(questionId);
-        questionTile.style.backgroundColor = selectedAnswer === correctAnswer ? 'green' : 'red';
-        questionTile.style.cursor = 'not-allowed'; // Disable further clicks
-        questionTile.removeEventListener('click', handleQuestionClick); // Disable click
+        questionTile.style.backgroundColor = 'green';  // Mark as correct
+        questionTile.style.cursor = 'not-allowed';  // Disable further clicks
+        questionTile.removeEventListener('click', handleQuestionClick);  // Disable click
 
-        // Update player display and current player
+        // Update player score
+        currentPlayer.score += questionValue;
         updatePlayerDisplay();
-        currentPlayerIndex = (currentPlayerIndex + 1) % players.length; // Cycle through players
+
+        // Move to the next player
+        currentPlayerIndex = (currentPlayerIndex + 1) % players.length;
         updateCurrentPlayer();
     }
+
+    function handleIncorrect(questionId, questionValue) {
+        const currentPlayer = players[currentPlayerIndex];
+
+        // Stop the timer
+        clearInterval(countdownInterval);
+        clearTimeout(timer);
+
+        // Mark the question as incorrect
+        const questionTile = document.getElementById(questionId);
+        questionTile.style.backgroundColor = 'red';  // Mark as incorrect
+        questionTile.style.cursor = 'not-allowed';  // Disable further clicks
+        questionTile.removeEventListener('click', handleQuestionClick);  // Disable click
+
+        // Update player score (subtract points)
+        currentPlayer.score -= questionValue;
+        updatePlayerDisplay();
+
+        // Move to the next player
+        currentPlayerIndex = (currentPlayerIndex + 1) % players.length;
+        updateCurrentPlayer();
+
+        // Close the modal after incorrect
+        closeModal();
+    }
+
 
     // Function to close the modal and return to the game board
     function closeModal() {
