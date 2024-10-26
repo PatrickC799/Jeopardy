@@ -37,6 +37,10 @@
         </div>
     </div>
 
+    <!-- New Game Button (hidden initially) -->
+    <button id="new-game-button" class="hidden">Start New Game</button>
+
+
     <!-- Question modal -->
     <div id="question-modal" class="modal" style="display: none;">
         <div class="modal-content">
@@ -51,12 +55,11 @@
 </div>
 
 <script>
-    let players = []; // Array to hold player objects {name, score}
+    // Array to hold player objects {name, score}
+    let players = [];
     let currentPlayerIndex = 0; // To keep track of whose turn it is
-    let correctAnswer = ''; // To store the correct answer for each question
-    let timer; // Reference to the countdown timer
-    let countdownInterval; // Reference to the countdown interval
-    const categories = {{ categories | tojson }};  // Injected from Flask (categories)
+    let categories = {{ categories | tojson }};  // Injected from Flask (categories)
+    let completedTiles = 0; // Track how many tiles have been answered
 
     // Function to update the displayed current player
     function updateCurrentPlayer() {
@@ -85,9 +88,8 @@
         const player3 = document.getElementById('player3').value.trim();
         const player4 = document.getElementById('player4').value.trim();
 
-        // Add the players to the players array with initial scores
-        players.push({name: player1, score: 0});
-        players.push({name: player2, score: 0});
+        // Add players to the players array with initial scores
+        players = [{name: player1, score: 0}, {name: player2, score: 0}];
         if (player3) players.push({name: player3, score: 0});
         if (player4) players.push({name: player4, score: 0});
 
@@ -100,11 +102,39 @@
         updatePlayerDisplay();
 
         // Generate the game board with categories
+        console.log("Calling generateGameBoard after player setup"); // Debugging
         generateGameBoard();
     });
 
-    // Function to generate the game board with categories and tiles
+    function startNewGame() {
+        console.log("Start New Game button clicked"); // Debugging to confirm function call
+
+        fetch('/reset_game')
+            .then(response => response.json())
+            .then(data => {
+                console.log("Reset game response:", data);
+
+                if (!data || !data.categories) {
+                    console.error("Failed to retrieve new categories from reset response");
+                    return;
+                }
+
+                // Update categories and reset other game elements
+                categories = data.categories;
+                console.log("New categories:", categories);
+
+                players.forEach(player => player.score = 0);
+                updatePlayerDisplay();
+                currentPlayerIndex = 0;
+                updateCurrentPlayer();
+                generateGameBoard();
+                document.getElementById('new-game-button').style.display = 'none';
+            })
+            .catch(error => console.error("Error resetting game:", error));
+    }
+
     function generateGameBoard() {
+        completedTiles = 0; // Reset completed tile count
         const board = document.getElementById('jeopardy-board');
         board.innerHTML = '';  // Clear any previous board
 
@@ -136,12 +166,17 @@
 
             board.appendChild(categoryColumn);
         });
+
+        // Hide the "New Game" button after regeneration
+        document.getElementById('new-game-button').style.display = 'none';
     }
 
+
+    // Function to handle question tile click
     function handleQuestionClick(event) {
         const item = event.target;
-        const category = encodeURIComponent(item.getAttribute('data-category'));  // Make sure category is URL-safe
-        const difficulty = item.getAttribute('data-difficulty');  // Drink value (1 to 5)
+        const category = encodeURIComponent(item.getAttribute('data-category'));
+        const difficulty = item.getAttribute('data-difficulty');
         const questionId = item.getAttribute('id');
         const questionValue = parseInt(item.getAttribute('data-value'), 10);
 
@@ -151,91 +186,83 @@
         fetchTriviaQuestion(category, difficulty, questionId, questionValue);
     }
 
-
     function fetchTriviaQuestion(category, difficulty, questionId, questionValue) {
-        fetch(`/get_questions/${category}/${difficulty}`)  // Fetch question based on category and difficulty
+        fetch(`/get_questions/${category}/${difficulty}`)
             .then(response => response.json())
             .then(data => {
-                console.log("Fetched Question Data: ", data);
-
-                // If no data (empty response or None returned from backend), notify or skip
                 if (!data || data.length === 0) {
                     console.error(`No question found for category: ${category}, difficulty: ${difficulty}`);
-                    return; // Exit without displaying the modal
+                    return;
                 }
 
-                const questionData = data[0];  // Get the first question (we only expect one)
-
-                // Display the question in the modal
+                const questionData = data[0];
                 document.getElementById('question-text').innerText = questionData.correct_answer;
 
-                // Clear previous buttons
                 const multipleChoiceContainer = document.getElementById('multiple-choice');
                 multipleChoiceContainer.innerHTML = '';
 
-                // Create "I've Answered" and "I Don't Know" buttons initially
                 const answeredButton = document.createElement('button');
                 answeredButton.innerText = "I've Answered";
                 answeredButton.onclick = function() {
-                    // Show the correct answer and change buttons to "Correct" and "Incorrect"
+                    // Show the correct answer and replace buttons with "Correct" and "Incorrect"
                     checkAnswer(questionData.question, questionId, questionValue);
                 };
 
                 const dontKnowButton = document.createElement('button');
                 dontKnowButton.innerText = "I Don't Know";
                 dontKnowButton.onclick = function() {
-                    handleIncorrect(questionId, questionValue);  // Handle incorrect answer
+                    handleIncorrect(questionId, questionValue);
                 };
 
                 multipleChoiceContainer.appendChild(answeredButton);
                 multipleChoiceContainer.appendChild(dontKnowButton);
 
-                // Show the modal and start the countdown timer
                 document.getElementById('question-modal').style.display = 'flex';
-                startTimer(questionId, questionValue);  // Start the 30-second timer
+                startTimer(questionId, questionValue);
             })
-            .catch(error => {
-                console.error(`Error fetching questions for category ${category}:`, error);
-            });
+            .catch(error => console.error(`Error fetching questions for category ${category}:`, error));
+    }
+
+    // Function to check if the board is completed and show "New Game" button
+    function checkBoardCompletion() {
+        const totalTiles = categories.length * 5; // Assuming 5 questions per category
+        completedTiles++;
+        if (completedTiles >= totalTiles) {
+            // Show the "New Game" button if all tiles are completed
+            document.getElementById('new-game-button').style.display = 'block';
+        }
     }
 
     function checkAnswer(correctAnswer, questionId, questionValue) {
-        const currentPlayer = players[currentPlayerIndex];
-
-        // Stop the timer
         clearInterval(countdownInterval);
         clearTimeout(timer);
 
-        // Show the correct answer
         document.getElementById('question-text').innerText = `The correct answer is: ${correctAnswer}`;
 
-        // Change buttons to "Correct" and "Incorrect"
+        // Replace buttons with "Correct" and "Incorrect"
         const multipleChoiceContainer = document.getElementById('multiple-choice');
-        multipleChoiceContainer.innerHTML = '';  // Clear current buttons
+        multipleChoiceContainer.innerHTML = '';
 
         const correctButton = document.createElement('button');
         correctButton.innerText = "Correct";
         correctButton.onclick = function() {
-            // Handle correct answer
+            const currentPlayer = players[currentPlayerIndex];
             const questionTile = document.getElementById(questionId);
-            questionTile.style.backgroundColor = 'green';  // Mark as correct
-            questionTile.style.cursor = 'not-allowed';  // Disable further clicks
-            questionTile.removeEventListener('click', handleQuestionClick);  // Disable click
-
-            // Update player score
+            questionTile.style.backgroundColor = 'green';
+            questionTile.style.cursor = 'not-allowed';
+            questionTile.removeEventListener('click', handleQuestionClick);
             currentPlayer.score += questionValue;
             updatePlayerDisplay();
-
-            // Move to the next player and close the modal
             currentPlayerIndex = (currentPlayerIndex + 1) % players.length;
             updateCurrentPlayer();
+            checkBoardCompletion(); // Check if the board is complete
             closeModal();
         };
 
         const incorrectButton = document.createElement('button');
         incorrectButton.innerText = "Incorrect";
         incorrectButton.onclick = function() {
-            handleIncorrect(questionId, questionValue);  // Treat as incorrect answer
+            handleIncorrect(questionId, questionValue);
         };
 
         multipleChoiceContainer.appendChild(correctButton);
@@ -245,77 +272,69 @@
 
     function handleIncorrect(questionId, questionValue) {
         const currentPlayer = players[currentPlayerIndex];
-
-        // Stop the timer
         clearInterval(countdownInterval);
         clearTimeout(timer);
 
-        // Mark the question as incorrect
         const questionTile = document.getElementById(questionId);
-        questionTile.style.backgroundColor = 'red';  // Mark as incorrect
-        questionTile.style.cursor = 'not-allowed';  // Disable further clicks
-        questionTile.removeEventListener('click', handleQuestionClick);  // Disable click
+        questionTile.style.backgroundColor = 'red';
+        questionTile.style.cursor = 'not-allowed';
+        questionTile.removeEventListener('click', handleQuestionClick);
 
-        // Update player score (subtract points)
         currentPlayer.score -= questionValue;
         updatePlayerDisplay();
-
-        // Move to the next player
         currentPlayerIndex = (currentPlayerIndex + 1) % players.length;
         updateCurrentPlayer();
-
-        // Close the modal after incorrect
+        checkBoardCompletion(); // Check if the board is complete
         closeModal();
     }
 
-    // Function to close the modal and return to the game board
     function closeModal() {
-        document.getElementById('question-modal').style.display = 'none';  // Hide the modal
-        clearInterval(countdownInterval);  // Stop the countdown
-        clearTimeout(timer);  // Stop the timer if running
+        document.getElementById('question-modal').style.display = 'none';
+        clearInterval(countdownInterval);
+        clearTimeout(timer);
     }
 
-    // Initialize event listeners after DOM is loaded
     document.addEventListener('DOMContentLoaded', () => {
+        // Attach the "New Game" button click event
+        // document.getElementById('new-game-button').addEventListener('click', function() {
+        //     console.log("New Game button click detected."); // Force log
+        //     startNewGame();
+        // });
+        document.getElementById('new-game-button').addEventListener('click',startNewGame)
+
+        // Attach the close modal button
         document.getElementById('close-modal').addEventListener('click', closeModal);
     });
 
-    // Function to start the 30-second countdown timer
+
     function startTimer(questionId, questionValue) {
-        let timeLeft = 30; // 30 seconds
-        document.getElementById('timer').innerText = timeLeft; // Display initial time
+        let timeLeft = 30;
+        document.getElementById('timer').innerText = timeLeft;
 
         countdownInterval = setInterval(() => {
             timeLeft--;
             if (timeLeft >= 0) {
                 document.getElementById('timer').innerText = timeLeft;
             } else {
-                clearInterval(countdownInterval); // Stop the interval when time runs out
+                clearInterval(countdownInterval);
             }
         }, 1000);
 
-        // Automatically mark the question as incorrect after 30 seconds
         timer = setTimeout(() => {
-            console.log('Time ran out!');
-
             const currentPlayer = players[currentPlayerIndex];
-            currentPlayer.score -= questionValue; // Subtract drinks from player's score if time runs out
-
-            // Mark the question as incorrect
+            currentPlayer.score -= questionValue;
             const questionTile = document.getElementById(questionId);
             questionTile.style.backgroundColor = 'red';
-            questionTile.style.cursor = 'not-allowed'; // Disable further clicks
-            questionTile.removeEventListener('click', handleQuestionClick); // Disable click
-
-            // Update player display and current player
+            questionTile.style.cursor = 'not-allowed';
+            questionTile.removeEventListener('click', handleQuestionClick);
             updatePlayerDisplay();
-            currentPlayerIndex = (currentPlayerIndex + 1) % players.length; // Cycle through players
+            currentPlayerIndex = (currentPlayerIndex + 1) % players.length;
             updateCurrentPlayer();
-
-            // Close the modal when time runs out
             closeModal();
-        }, 30000); // 30 seconds
+        }, 30000);
     }
+
 </script>
 </body>
 </html>
+

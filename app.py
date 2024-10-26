@@ -74,5 +74,24 @@ def get_questions(category, difficulty):
 
     return jsonify([question_data] if question_data else [])
 
+@app.route('/reset_game', methods=['GET'])
+def reset_game():
+    # Clear session data
+    session["asked_questions"] = []
+    session["player_scores"] = [0] * len(session.get("player_scores", []))
+
+    # Fetch a new set of random categories
+    conn = get_db_connection()
+    categories = conn.execute("SELECT DISTINCT category FROM jeopardy_questions ORDER BY RANDOM() LIMIT 3;").fetchall()
+    conn.close()
+
+    # Convert categories to a list of strings
+    category_list = [category[0] for category in categories]
+    session["categories"] = category_list
+
+    return jsonify({"message": "Game reset successfully", "categories": category_list})
+
+
+
 if __name__ == '__main__':
     app.run(debug=True)
