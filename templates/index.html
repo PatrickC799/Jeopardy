@@ -38,7 +38,7 @@
     </div>
 
     <!-- Question modal -->
-    <div id="question-modal" class="modal">
+    <div id="question-modal" class="modal" style="display: none;">
         <div class="modal-content">
             <h1 id="question-text"></h1>
             <div id="timer-container">
@@ -161,29 +161,24 @@
                 // If no data (empty response or None returned from backend), notify or skip
                 if (!data || data.length === 0) {
                     console.error(`No question found for category: ${category}, difficulty: ${difficulty}`);
-                    document.getElementById('question-text').innerText = 'No question available for this tile.';
-                    return;
+                    return; // Exit without displaying the modal
                 }
 
                 const questionData = data[0];  // Get the first question (we only expect one)
 
-                if (!questionData) {
-                    console.error('No question found for this tile.');
-                    return;
-                }
-
-                // Display the prompt from the 'correct_answer' column (as the prompt)
+                // Display the question in the modal
                 document.getElementById('question-text').innerText = questionData.correct_answer;
 
-                // Clear previous buttons (no multiple-choice now)
+                // Clear previous buttons
                 const multipleChoiceContainer = document.getElementById('multiple-choice');
                 multipleChoiceContainer.innerHTML = '';
 
-                // Create buttons for "Answered" and "I Don't Know"
+                // Create "I've Answered" and "I Don't Know" buttons initially
                 const answeredButton = document.createElement('button');
                 answeredButton.innerText = "I've Answered";
                 answeredButton.onclick = function() {
-                    checkAnswer(questionData.question, questionId, questionValue);  // Use 'question' as correct answer
+                    // Show the correct answer and change buttons to "Correct" and "Incorrect"
+                    checkAnswer(questionData.question, questionId, questionValue);
                 };
 
                 const dontKnowButton = document.createElement('button');
@@ -214,20 +209,39 @@
         // Show the correct answer
         document.getElementById('question-text').innerText = `The correct answer is: ${correctAnswer}`;
 
-        // Mark the question as answered correctly
-        const questionTile = document.getElementById(questionId);
-        questionTile.style.backgroundColor = 'green';  // Mark as correct
-        questionTile.style.cursor = 'not-allowed';  // Disable further clicks
-        questionTile.removeEventListener('click', handleQuestionClick);  // Disable click
+        // Change buttons to "Correct" and "Incorrect"
+        const multipleChoiceContainer = document.getElementById('multiple-choice');
+        multipleChoiceContainer.innerHTML = '';  // Clear current buttons
 
-        // Update player score
-        currentPlayer.score += questionValue;
-        updatePlayerDisplay();
+        const correctButton = document.createElement('button');
+        correctButton.innerText = "Correct";
+        correctButton.onclick = function() {
+            // Handle correct answer
+            const questionTile = document.getElementById(questionId);
+            questionTile.style.backgroundColor = 'green';  // Mark as correct
+            questionTile.style.cursor = 'not-allowed';  // Disable further clicks
+            questionTile.removeEventListener('click', handleQuestionClick);  // Disable click
 
-        // Move to the next player
-        currentPlayerIndex = (currentPlayerIndex + 1) % players.length;
-        updateCurrentPlayer();
+            // Update player score
+            currentPlayer.score += questionValue;
+            updatePlayerDisplay();
+
+            // Move to the next player and close the modal
+            currentPlayerIndex = (currentPlayerIndex + 1) % players.length;
+            updateCurrentPlayer();
+            closeModal();
+        };
+
+        const incorrectButton = document.createElement('button');
+        incorrectButton.innerText = "Incorrect";
+        incorrectButton.onclick = function() {
+            handleIncorrect(questionId, questionValue);  // Treat as incorrect answer
+        };
+
+        multipleChoiceContainer.appendChild(correctButton);
+        multipleChoiceContainer.appendChild(incorrectButton);
     }
+
 
     function handleIncorrect(questionId, questionValue) {
         const currentPlayer = players[currentPlayerIndex];
@@ -253,7 +267,6 @@
         // Close the modal after incorrect
         closeModal();
     }
-
 
     // Function to close the modal and return to the game board
     function closeModal() {
